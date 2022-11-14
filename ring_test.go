@@ -123,16 +123,18 @@ var _ = Describe("Redis Ring", func() {
 				"ringShardOne": ":" + ringShard1Port,
 			})
 			Expect(ring.Len(), 1)
+
 			gotShard := ring.ShardByName("ringShardOne")
-			Expect(gotShard).To(Equal(wantShard))
+			Expect(gotShard).To(BeIdenticalTo(wantShard))
 
 			ring.SetAddrs(map[string]string{
 				"ringShardOne": ":" + ringShard1Port,
 				"ringShardTwo": ":" + ringShard2Port,
 			})
 			Expect(ring.Len(), 2)
+
 			gotShard = ring.ShardByName("ringShardOne")
-			Expect(gotShard).To(Equal(wantShard))
+			Expect(gotShard).To(BeIdenticalTo(wantShard))
 		})
 
 		It("uses 3 shards after setting it to 3 shards", func() {
@@ -153,11 +155,12 @@ var _ = Describe("Redis Ring", func() {
 				shardName3: shardAddr3,
 			})
 			Expect(ring.Len(), 3)
+
 			gotShard1 := ring.ShardByName(shardName1)
 			gotShard2 := ring.ShardByName(shardName2)
 			gotShard3 := ring.ShardByName(shardName3)
-			Expect(gotShard1).To(Equal(wantShard1))
-			Expect(gotShard2).To(Equal(wantShard2))
+			Expect(gotShard1).To(BeIdenticalTo(wantShard1))
+			Expect(gotShard2).To(BeIdenticalTo(wantShard2))
 			Expect(gotShard3).ToNot(BeNil())
 
 			ring.SetAddrs(map[string]string{
@@ -165,11 +168,12 @@ var _ = Describe("Redis Ring", func() {
 				shardName2: shardAddr2,
 			})
 			Expect(ring.Len(), 2)
+
 			gotShard1 = ring.ShardByName(shardName1)
 			gotShard2 = ring.ShardByName(shardName2)
 			gotShard3 = ring.ShardByName(shardName3)
-			Expect(gotShard1).To(Equal(wantShard1))
-			Expect(gotShard2).To(Equal(wantShard2))
+			Expect(gotShard1).To(BeIdenticalTo(wantShard1))
+			Expect(gotShard2).To(BeIdenticalTo(wantShard2))
 			Expect(gotShard3).To(BeNil())
 		})
 	})

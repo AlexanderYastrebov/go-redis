@@ -213,6 +213,7 @@ func (shard *ringShard) Vote(up bool) bool {
 type ringSharding struct {
 	opt *RingOptions
 
+	addrsMu   sync.Mutex
 	mu        sync.RWMutex
 	shards    *ringShards
 	closed    bool
@@ -245,46 +246,64 @@ func (c *ringSharding) OnNewNode(fn func(rdb *Client)) {
 // decrease number of shards, that you use. It will reuse shards that
 // existed before and close the ones that will not be used anymore.
 func (c *ringSharding) SetAddrs(addrs map[string]string) {
-	c.mu.Lock()
+	c.addrsMu.Lock()
+	defer c.addrsMu.Unlock()
 
+	closeShards := func(shards map[string]*ringShard) {
+		for addr, shard := range shards {
+			if err := shard.Client.Close(); err != nil {
+				internal.Logger.Printf(context.Background(), "shard.Close %s failed: %s", addr, err)
+			}
+		}
+	}
+
+	c.mu.RLock()
 	if c.closed {
+		c.mu.RUnlock()
+		return
+	}
+	shards := c.shards
+	c.mu.RUnlock()
+
+	shards, created, unused := c.newRingShards(addrs, shards)
+
+	c.mu.Lock()
+	if c.closed {
+		closeShards(created)
 		c.mu.Unlock()
 		return
 	}
-
-	shards, cleanup := c.newRingShards(addrs, c.shards)
 	c.shards = shards
 	c.mu.Unlock()
 
 	c.rebalance()
-	cleanup()
+	closeShards(unused)
 }
 
 func (c *ringSharding) newRingShards(
 	addrs map[string]string, existingShards *ringShards,
-) (*ringShards, func()) {
-	shardMap := make(map[string]*ringShard)     // indexed by addr
-	unusedShards := make(map[string]*ringShard) // indexed by addr
+) (shards *ringShards, created, unused map[string]*ringShard) {
+	created = make(map[string]*ringShard)
+	unused = make(map[string]*ringShard)
 
 	if existingShards != nil {
 		for _, shard := range existingShards.list {
-			addr := shard.Client.opt.Addr
-			shardMap[addr] = shard
-			unusedShards[addr] = shard
+			unused[shard.addr] = shard
 		}
 	}
 
-	shards := &ringShards{
-		m: make(map[string]*ringShard),
+	shards = &ringShards{
+		m: make(map[string]*ringShard, len(addrs)),
 	}
 
 	for name, addr := range addrs {
-		if shard, ok := shardMap[addr]; ok {
+		if shard, ok := unused[addr]; ok {
 			shards.m[name] = shard
-			delete(unusedShards, addr)
+			delete(unused, addr)
 		} else {
 			shard := newRingShard(c.opt, addr)
 			shards.m[name] = shard
+			created[addr] = shard
 
 			for _, fn := range c.onNewNode {
 				fn(shard.Client)
@@ -296,13 +315,7 @@ func (c *ringSharding) newRingShards(
 		shards.list = append(shards.list, shard)
 	}
 
-	return shards, func() {
-		for addr, shard := range unusedShards {
-			if err := shard.Client.Close(); err != nil {
-				internal.Logger.Printf(context.Background(), "shard.Close %s failed: %s", addr, err)
-			}
-		}
-	}
+	return
 }
 
 func (c *ringSharding) List() []*ringShard {
